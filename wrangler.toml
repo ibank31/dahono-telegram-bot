@@ -17,5 +17,25 @@ id = "d7393d2de8044883810fc43ae995fc3e"
 
 [vars]
 DEFAULT_BRANCH = "main"
-# AI_MODEL = "dahono/qwen-coder-plus"
+
+# ==========================
+# AI MODEL ROUTER
+# ==========================
+
+MODEL_DEFAULT = "dahono/claude-sonnet-4.5-agentic-free"
+
+MODEL_AUDIT = "dahono/claude-sonnet-4.5-thinking-free"
+
+MODEL_PLANNER = "dahono/claude-sonnet-4.5-thinking-agentic-free"
+
+MODEL_CODER = "dahono/qwen3-coder-plus"
+
+MODEL_FAST = "dahono/qwen3.6-flash"
+
+MODEL_REPO = "dahono/claude-sonnet-4.5-agentic-free"
+
+MODEL_SEO = "dahono/claude-sonnet-4.5-thinking-free"
+
+MODEL_DEBUG = "dahono/claude-sonnet-4.5-thinking-agentic-free"
+
 # ALLOWED_CHAT_IDS = "123456789,987654321"
