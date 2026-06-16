@@ -8,7 +8,7 @@ compatibility_date = "2026-06-15"
 # Lalu isi "id" di bawah dengan output dari perintah tersebut.
 [[kv_namespaces]]
 binding = "HISTORY_KV"
-id = "GANTI_DENGAN_ID_KV_KAMU"
+id = "d7393d2de8044883810fc43ae995fc3e"
 
 # ── Variabel environment ───────────────────────────────────────
 # Rahasia (TOKEN, KEY) → set via Cloudflare dashboard > Settings > Variables
