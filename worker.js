@@ -8,6 +8,37 @@ export default {
 
     const chatId = update.message.chat.id;
     const text = update.message.text;
+    if (text.toLowerCase() === "cek repo") {
+  const project = await fetch(
+    `https://gitlab.com/api/v4/projects/${env.GITLAB_PROJECT_ID}`,
+    {
+      headers: {
+        "PRIVATE-TOKEN": env.GITLAB_TOKEN
+      }
+    }
+  );
+
+  const data = await project.json();
+
+  await fetch(
+    `https://api.telegram.org/bot${env.TELEGRAM_TOKEN}/sendMessage`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text:
+          `Project: ${data.name}\n` +
+          `Branch: ${data.default_branch}\n` +
+          `Visibility: ${data.visibility}`
+      })
+    }
+  );
+
+  return new Response("OK");
+    }
 
     const ai = await fetch(
       "https://gateway.dahono.com/v1/chat/completions",
