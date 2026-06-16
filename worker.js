@@ -450,7 +450,11 @@ body: JSON.stringify({
 }
 
 // Fallback tanpa tool calling (jika gateway tidak support)
-async function runAgentFallback(messages, env) {
+async function runAgentFallback(
+  messages,
+  env,
+  userText = ""
+) {
   const res = await fetch("https://gateway.dahono.com/v1/chat/completions", {
     method: "POST",
     headers: {
