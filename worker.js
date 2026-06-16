@@ -630,7 +630,11 @@ async function processUpdate(update, env) {
   const userMsg = { role: "user", content: text };
   const workingMessages = [...history, userMsg];
 
-  const reply = await runAgent(workingMessages, env);
+  const reply = await runAgent(
+  workingMessages,
+  env,
+  text
+);
 
   // Simpan ke history (user + assistant, tanpa tool messages)
   await saveHistory(env, chatId, [
