@@ -576,6 +576,11 @@ async function processUpdate(update, env) {
   if (!message?.text) return;
 
   const chatId = message.chat.id;
+  await tgSend(
+  env,
+  chatId,
+  "DEBUG 1"
+);
   const text = message.text.trim();
 
   // Security gate
