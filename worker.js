@@ -576,11 +576,6 @@ async function processUpdate(update, env) {
   if (!message?.text) return;
 
   const chatId = message.chat.id;
-  await tgSend(
-  env,
-  chatId,
-  "DEBUG 1"
-);
   const text = message.text.trim();
 
   // Security gate
@@ -598,7 +593,8 @@ async function processUpdate(update, env) {
       `• "Apa commit terakhir yang masuk?"\n` +
       `• "Jelaskan struktur repo ini"\n\n` +
       `/reset — hapus history percakapan\n` +
-      `/status — cek koneksi ke repo`
+      `/status — cek koneksi repo\n` +
+      `/debug — cek semua env vars & koneksi`
     );
     return;
   }
@@ -606,6 +602,57 @@ async function processUpdate(update, env) {
   if (text === "/reset") {
     await clearHistory(env, chatId);
     await tgSend(env, chatId, "✅ History percakapan dihapus. Mulai sesi baru.");
+    return;
+  }
+
+  if (text === "/debug") {
+    const lines = ["🔍 Debug RADJA AC Agent\n"];
+
+    lines.push("── Env Vars ──");
+    lines.push(`TELEGRAM_TOKEN: ${env.TELEGRAM_TOKEN ? "✅" : "❌ MISSING"}`);
+    lines.push(`DAHONO_API_KEY: ${env.DAHONO_API_KEY ? "✅" : "❌ MISSING"}`);
+    lines.push(`GITLAB_TOKEN: ${env.GITLAB_TOKEN ? "✅" : "❌ MISSING"}`);
+    lines.push(`GITLAB_PROJECT_ID: ${env.GITLAB_PROJECT_ID || "❌ MISSING"}`);
+    lines.push(`HISTORY_KV: ${env.HISTORY_KV ? "✅ bound" : "❌ NOT BOUND"}`);
+    lines.push(`MODEL_DEFAULT: ${env.MODEL_DEFAULT || "❌ MISSING"}`);
+
+    lines.push("\n── GitLab API ──");
+    try {
+      const info = await gitlabFetch(env, "");
+      lines.push(info?.name
+        ? `✅ ${info.name} (${info.default_branch})`
+        : "❌ Gagal — cek TOKEN & PROJECT_ID");
+    } catch (e) {
+      lines.push(`❌ ${e.message}`);
+    }
+
+    lines.push("\n── AI API ──");
+    try {
+      const aiRes = await fetch("https://gateway.dahono.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${env.DAHONO_API_KEY}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          model: env.MODEL_DEFAULT || "dahono/claude-sonnet-4.5-agentic-free",
+          messages: [{ role: "user", content: "Balas hanya: OK" }],
+          max_tokens: 10
+        })
+      });
+      if (!aiRes.ok) {
+        const errBody = await aiRes.text();
+        lines.push(`❌ HTTP ${aiRes.status}: ${errBody.slice(0, 200)}`);
+      } else {
+        const aiData = await aiRes.json();
+        const aiReply = aiData?.choices?.[0]?.message?.content;
+        lines.push(aiReply ? `✅ Menjawab: "${aiReply.trim()}"` : `⚠️ Respons tak terduga: ${JSON.stringify(aiData).slice(0, 100)}`);
+      }
+    } catch (e) {
+      lines.push(`❌ ${e.message}`);
+    }
+
+    await tgSend(env, chatId, lines.join("\n"));
     return;
   }
 
@@ -653,11 +700,40 @@ async function processUpdate(update, env) {
 
 export default {
   async fetch(request, env, ctx) {
-    // Telegram butuh respons cepat — proses di background
+    // WAJIB: baca body dulu sebelum return response.
+    // request.body adalah ReadableStream satu kali — kalau dibaca
+    // di dalam ctx.waitUntil setelah response dikirim, stream bisa mati.
+    let update;
+    try {
+      update = await request.json();
+    } catch {
+      // Bukan JSON valid (health check, browser ping, dll) — abaikan
+      return new Response("OK", { status: 200 });
+    }
+
+    // Setelah body terbaca, proses di background supaya Telegram tidak timeout
     ctx.waitUntil(
-      request.json()
-        .then(update => processUpdate(update, env))
-        .catch(err => console.error("Agent error:", err))
+      processUpdate(update, env)
+        .catch(async (err) => {
+          console.error("processUpdate fatal error:", err);
+          // Coba kirim error ke chat jika bisa
+          try {
+            const chatId = update?.message?.chat?.id;
+            if (chatId && env.TELEGRAM_TOKEN) {
+              await fetch(
+                `https://api.telegram.org/bot${env.TELEGRAM_TOKEN}/sendMessage`,
+                {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    chat_id: chatId,
+                    text: `❌ Fatal error: ${err.message?.slice(0, 200) || "unknown"}`
+                  })
+                }
+              );
+            }
+          } catch {}
+        })
     );
 
     return new Response("OK", { status: 200 });
