@@ -1,3 +1,21 @@
 name = "crimson-brook-1413"
 main = "worker.js"
 compatibility_date = "2026-06-15"
+
+# ── KV Namespace untuk history percakapan ──────────────────────
+# Setup: jalankan perintah ini sekali di terminal:
+#   npx wrangler kv:namespace create HISTORY_KV
+# Lalu isi "id" di bawah dengan output dari perintah tersebut.
+[[kv_namespaces]]
+binding = "HISTORY_KV"
+id = "GANTI_DENGAN_ID_KV_KAMU"
+
+# ── Variabel environment ───────────────────────────────────────
+# Rahasia (TOKEN, KEY) → set via Cloudflare dashboard > Settings > Variables
+# supaya tidak masuk ke version control.
+# Var opsional bisa diset di sini:
+
+[vars]
+DEFAULT_BRANCH = "main"
+# AI_MODEL = "dahono/qwen-coder-plus"
+# ALLOWED_CHAT_IDS = "123456789,987654321"
