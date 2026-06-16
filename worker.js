@@ -408,7 +408,11 @@ body: JSON.stringify({
     if (!res.ok) {
       const errText = await res.text();
       // Fallback: try without tools (compatibility mode)
-      if (i === 0) return await runAgentFallback(conversationMessages, env);
+      if (i === 0) return await runAgentFallback(
+  conversationMessages,
+  env,
+  userText
+);
       return `⚠️ AI error (iterasi ${i + 1}): ${errText.slice(0, 200)}`;
     }
 
