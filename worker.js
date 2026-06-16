@@ -22,6 +22,53 @@
 // SISTEM PROMPT — konteks penuh RADJA AC
 // ────────────────────────────────────────────────────────────────
 
+function selectModel(env, text = "") {
+
+  const q = text.toLowerCase();
+
+  if (
+    q.includes("audit") ||
+    q.includes("seo") ||
+    q.includes("homepage") ||
+    q.includes("landing page") ||
+    q.includes("brand page")
+  ) {
+    return env.MODEL_AUDIT || env.MODEL_DEFAULT;
+  }
+
+  if (
+    q.includes("plan") ||
+    q.includes("arsitektur") ||
+    q.includes("roadmap") ||
+    q.includes("strategy")
+  ) {
+    return env.MODEL_PLANNER || env.MODEL_DEFAULT;
+  }
+
+  if (
+    q.includes("bug") ||
+    q.includes("error") ||
+    q.includes("debug")
+  ) {
+    return env.MODEL_DEBUG || env.MODEL_DEFAULT;
+  }
+
+  if (
+    q.includes("refactor") ||
+    q.includes("buat component") ||
+    q.includes("buat page") ||
+    q.includes("nextjs") ||
+    q.includes("typescript") ||
+    q.includes("javascript") ||
+    q.includes("react")
+  ) {
+    return env.MODEL_CODER || env.MODEL_DEFAULT;
+  }
+
+  return env.MODEL_DEFAULT ||
+    "dahono/claude-sonnet-4.5-agentic-free";
+}
+
 const SYSTEM_PROMPT = `Kamu adalah AI agent senior untuk proyek radjaac.com — website AC multi-brand yang dikelola di GitLab dengan stack Next.js App Router + Cloudflare Pages.
 
 IDENTITAS BISNIS:
