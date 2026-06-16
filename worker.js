@@ -372,7 +372,11 @@ async function executeTool(name, args, env) {
 // AGENTIC LOOP
 // ────────────────────────────────────────────────────────────────
 
-async function runAgent(conversationMessages, env) {
+async function runAgent(
+  conversationMessages,
+  env,
+  userText = ""
+) {
   const MAX_ITERATIONS = 8;
   const messages = [...conversationMessages];
 
