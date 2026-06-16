@@ -9,65 +9,163 @@
 //   GITLAB_PROJECT_ID   — project ID (angka, dari Settings > General)
 //   DAHONO_API_KEY      — API key gateway AI
 //   DEFAULT_BRANCH      — (opsional, default: main)
-//   AI_MODEL            — (opsional, default: dahono/qwen-coder-plus)
 //   ALLOWED_CHAT_IDS    — chat ID yg boleh akses, pisah koma (kosong = semua)
+//
+// AI_GATEWAY_BASE_URL   — (opsional, default: https://gateway.dahono.com/v1)
+//   Set ini untuk ganti endpoint tanpa ubah kode sama sekali.
+//
+// Model vars (di wrangler.toml [vars]):
+//   MODEL_DEFAULT, MODEL_CASUAL, MODEL_AUDIT, MODEL_PLANNER,
+//   MODEL_CODER, MODEL_FAST, MODEL_REPO, MODEL_SEO, MODEL_DEBUG
 //
 // KV Binding (wrangler.toml):
 //   [[kv_namespaces]]
 //   binding = "HISTORY_KV"
-//   id = "..."   ← isi dari: wrangler kv:namespace create HISTORY_KV
+//   id = "..."
 // ================================================================
+
+// ────────────────────────────────────────────────────────────────
+// [1] ENDPOINT CONFIG — SATU TEMPAT UNTUK SEMUA PANGGILAN AI
+// ────────────────────────────────────────────────────────────────
+// Untuk ganti endpoint (misal dari Dahono ke OpenRouter, atau ke
+// instance lokal): cukup ubah AI_GATEWAY_BASE_URL di wrangler.toml
+// atau di Cloudflare dashboard. Tidak perlu sentuh kode sama sekali.
+
+function getAiEndpoint(env) {
+  const base = (env.AI_GATEWAY_BASE_URL || "https://gateway.dahono.com/v1")
+    .replace(/\/$/, ""); // hapus trailing slash
+  return `${base}/chat/completions`;
+}
+
+function getAiHeaders(env) {
+  return {
+    "Authorization": `Bearer ${env.DAHONO_API_KEY}`,
+    "Content-Type": "application/json"
+  };
+}
+
+// ────────────────────────────────────────────────────────────────
+// [2] MODEL ROUTER — kriteria pemilihan model per intent
+// ────────────────────────────────────────────────────────────────
+//
+// Hierarki prioritas (dari atas ke bawah, yang pertama match menang):
+//   1. Override manual via /model <nama>  ← dikontrol user
+//   2. Keyword intent dari teks pesan     ← auto-detect
+//   3. MODEL_DEFAULT sebagai fallback
+//
+// Untuk tambah kategori baru:
+//   (a) Tambah MODEL_XXX di wrangler.toml [vars]
+//   (b) Tambah blok if baru di selectModel() di bawah
+//   (c) Tambah keyword atau kondisi yang relevan
+
+const MODEL_INTENT_MAP = [
+  {
+    name: "casual",          // Obrolan ringan, pertanyaan cepat
+    envKey: "MODEL_CASUAL",
+    fallbackEnvKey: "MODEL_FAST",
+    keywords: [
+      "halo", "hai", "hi", "hello",
+      "apa kabar", "gimana", "santai", "ngobrol",
+      "sebentar", "cepat", "quick", "singkat",
+      "makasih", "thanks", "oke", "ok"
+    ]
+  },
+  {
+    name: "audit",           // Analisis mendalam, review, SEO
+    envKey: "MODEL_AUDIT",
+    keywords: [
+      "audit", "seo", "review", "analisa", "analisis",
+      "homepage", "landing page", "brand page",
+      "cek konten", "evaluasi", "perbaiki", "benchmark"
+    ]
+  },
+  {
+    name: "planner",         // Perencanaan, roadmap, arsitektur
+    envKey: "MODEL_PLANNER",
+    keywords: [
+      "plan", "planning", "arsitektur", "roadmap",
+      "strategi", "strategy", "struktur",
+      "langkah", "tahapan", "rancang", "desain sistem"
+    ]
+  },
+  {
+    name: "debug",           // Bug, error, investigasi masalah
+    envKey: "MODEL_DEBUG",
+    keywords: [
+      "bug", "error", "debug", "masalah", "kenapa",
+      "tidak bisa", "gagal", "broken", "fix",
+      "investigate", "investigasi", "kenapa", "kok"
+    ]
+  },
+  {
+    name: "coder",           // Coding, refactor, buat komponen
+    envKey: "MODEL_CODER",
+    keywords: [
+      "refactor", "buat component", "buat page", "buat fungsi",
+      "nextjs", "typescript", "javascript", "react",
+      "kode", "code", "coding", "tulis", "function",
+      "import", "export", "hook", "api route",
+      "component", "jsx", "tsx", "css", "style"
+    ]
+  },
+  {
+    name: "repo",            // Akses repo: baca file, commit, tree
+    envKey: "MODEL_REPO",
+    keywords: [
+      "baca file", "lihat file", "read file", "isi file",
+      "commit", "push", "tulis file", "update file",
+      "repo", "gitlab", "branch", "list file", "cari file",
+      "direktori", "folder", "tree"
+    ]
+  },
+  {
+    name: "seo",             // SEO spesifik
+    envKey: "MODEL_SEO",
+    keywords: [
+      "meta", "schema", "title tag", "canonical",
+      "keyword", "h1", "h2", "heading", "crawl",
+      "indexing", "sitemap", "robots", "backlink"
+    ]
+  }
+];
+
+/**
+ * Pilih model berdasarkan intent pesan.
+ * @param {object} env   - Cloudflare env
+ * @param {string} text  - Teks pesan user
+ * @param {string|null} override - Model override dari /model command
+ * @returns {{ model: string, intent: string }}
+ */
+function selectModel(env, text = "", override = null) {
+  // 1. Override manual dari user
+  if (override) {
+    return { model: override, intent: "manual-override" };
+  }
+
+  const q = text.toLowerCase();
+
+  // 2. Cek setiap intent (urutan penting — yang lebih spesifik di atas)
+  for (const intent of MODEL_INTENT_MAP) {
+    const matched = intent.keywords.some(kw => q.includes(kw));
+    if (matched) {
+      // Ambil model dari env, atau fallback env, atau MODEL_DEFAULT
+      const model =
+        env[intent.envKey] ||
+        (intent.fallbackEnvKey ? env[intent.fallbackEnvKey] : null) ||
+        env.MODEL_DEFAULT ||
+        "dahono/claude-sonnet-4.5-agentic-free";
+      return { model, intent: intent.name };
+    }
+  }
+
+  // 3. Default
+  const model = env.MODEL_DEFAULT || "dahono/claude-sonnet-4.5-agentic-free";
+  return { model, intent: "default" };
+}
 
 // ────────────────────────────────────────────────────────────────
 // SISTEM PROMPT — konteks penuh RADJA AC
 // ────────────────────────────────────────────────────────────────
-
-function selectModel(env, text = "") {
-
-  const q = text.toLowerCase();
-
-  if (
-    q.includes("audit") ||
-    q.includes("seo") ||
-    q.includes("homepage") ||
-    q.includes("landing page") ||
-    q.includes("brand page")
-  ) {
-    return env.MODEL_AUDIT || env.MODEL_DEFAULT;
-  }
-
-  if (
-    q.includes("plan") ||
-    q.includes("arsitektur") ||
-    q.includes("roadmap") ||
-    q.includes("strategy")
-  ) {
-    return env.MODEL_PLANNER || env.MODEL_DEFAULT;
-  }
-
-  if (
-    q.includes("bug") ||
-    q.includes("error") ||
-    q.includes("debug")
-  ) {
-    return env.MODEL_DEBUG || env.MODEL_DEFAULT;
-  }
-
-  if (
-    q.includes("refactor") ||
-    q.includes("buat component") ||
-    q.includes("buat page") ||
-    q.includes("nextjs") ||
-    q.includes("typescript") ||
-    q.includes("javascript") ||
-    q.includes("react")
-  ) {
-    return env.MODEL_CODER || env.MODEL_DEFAULT;
-  }
-
-  return env.MODEL_DEFAULT ||
-    "dahono/claude-sonnet-4.5-agentic-free";
-}
 
 const SYSTEM_PROMPT = `Kamu adalah AI agent senior untuk proyek radjaac.com — website AC multi-brand yang dikelola di GitLab dengan stack Next.js App Router + Cloudflare Pages.
 
@@ -253,7 +351,6 @@ async function readFile(env, filePath) {
 async function writeFile(env, filePath, content, commitMessage) {
   const branch = env.DEFAULT_BRANCH || "main";
 
-  // Check if file exists to decide POST vs PUT
   const existing = await gitlabFetch(
     env,
     `repository/files/${encodeURIComponent(filePath)}?ref=${branch}`
@@ -316,7 +413,6 @@ async function executeTool(name, args, env) {
       case "list_files": {
         const files = await listFiles(env, args.prefix || "");
         if (!files.length) return "Tidak ada file ditemukan.";
-        // Group by folder for readability
         return files.join("\n");
       }
 
@@ -372,24 +468,17 @@ async function executeTool(name, args, env) {
 // AGENTIC LOOP
 // ────────────────────────────────────────────────────────────────
 
-async function runAgent(
-  conversationMessages,
-  env,
-  userText = ""
-) {
+async function runAgent(conversationMessages, env, userText = "", modelOverride = null) {
   const MAX_ITERATIONS = 8;
   const messages = [...conversationMessages];
 
-  for (let i = 0; i < MAX_ITERATIONS; i++) {
-    // Mendapatkan model yang tepat berdasarkan userText
-    const model = selectModel(env, userText);
+  // Tentukan model SEKALI di awal — tidak berubah per iterasi
+  const { model, intent } = selectModel(env, userText, modelOverride);
 
-    const res = await fetch("https://gateway.dahono.com/v1/chat/completions", {
+  for (let i = 0; i < MAX_ITERATIONS; i++) {
+    const res = await fetch(getAiEndpoint(env), {
       method: "POST",
-      headers: {
-        "Authorization": `Bearer ${env.DAHONO_API_KEY}`,
-        "Content-Type": "application/json"
-      },
+      headers: getAiHeaders(env),
       body: JSON.stringify({
         model,
         messages: [
@@ -405,12 +494,7 @@ async function runAgent(
 
     if (!res.ok) {
       const errText = await res.text();
-      // Fallback: try without tools (compatibility mode)
-      if (i === 0) return await runAgentFallback(
-        conversationMessages,
-        env,
-        userText
-      );
+      if (i === 0) return await runAgentFallback(conversationMessages, env, userText, modelOverride);
       return `⚠️ AI error (iterasi ${i + 1}): ${errText.slice(0, 200)}`;
     }
 
@@ -421,12 +505,14 @@ async function runAgent(
     const msg = choice.message;
     messages.push(msg);
 
-    // AI selesai & tidak minta tools → return jawaban
     if (choice.finish_reason !== "tool_calls" || !msg.tool_calls?.length) {
-      return msg.content || "⚠️ Respons kosong.";
+      // Tambahkan info model di akhir jika bukan mode casual
+      const modelNote = intent !== "casual" && intent !== "default"
+        ? `\n\n_[${intent} • ${model.split("/").pop()}]_`
+        : "";
+      return (msg.content || "⚠️ Respons kosong.") + modelNote;
     }
 
-    // Eksekusi semua tool calls secara paralel
     const toolResults = await Promise.all(
       msg.tool_calls.map(async (tc) => {
         let args = {};
@@ -441,27 +527,18 @@ async function runAgent(
     );
 
     messages.push(...toolResults);
-    // Loop lagi — AI akan proses hasil tool
   }
 
   return "⚠️ Agen melebihi batas iterasi. Coba pertanyaan lebih spesifik.";
 }
 
-// Fallback tanpa tool calling (jika gateway tidak support)
-async function runAgentFallback(
-  messages,
-  env,
-  userText = ""
-) {
-  // Mendapatkan model yang tepat berdasarkan userText
-  const model = selectModel(env, userText);
+// Fallback tanpa tool calling
+async function runAgentFallback(messages, env, userText = "", modelOverride = null) {
+  const { model } = selectModel(env, userText, modelOverride);
 
-  const res = await fetch("https://gateway.dahono.com/v1/chat/completions", {
+  const res = await fetch(getAiEndpoint(env), {
     method: "POST",
-    headers: {
-      "Authorization": `Bearer ${env.DAHONO_API_KEY}`,
-      "Content-Type": "application/json"
-    },
+    headers: getAiHeaders(env),
     body: JSON.stringify({
       model,
       messages: [
@@ -482,8 +559,8 @@ async function runAgentFallback(
 // CONVERSATION HISTORY (KV)
 // ────────────────────────────────────────────────────────────────
 
-const MAX_HISTORY_MESSAGES = 24; // simpan 12 turn terakhir (user+assistant)
-const HISTORY_TTL_SECONDS = 7 * 24 * 3600; // 7 hari
+const MAX_HISTORY_MESSAGES = 24;
+const HISTORY_TTL_SECONDS = 7 * 24 * 3600;
 
 async function loadHistory(env, chatId) {
   try {
@@ -498,7 +575,6 @@ async function loadHistory(env, chatId) {
 async function saveHistory(env, chatId, messages) {
   try {
     if (!env.HISTORY_KV) return;
-    // Simpan hanya pesan user/assistant (bukan tool calls — terlalu verbose)
     const clean = messages.filter(m => m.role === "user" || m.role === "assistant");
     const trimmed = clean.slice(-MAX_HISTORY_MESSAGES);
     await env.HISTORY_KV.put(
@@ -517,6 +593,29 @@ async function clearHistory(env, chatId) {
 }
 
 // ────────────────────────────────────────────────────────────────
+// MODEL OVERRIDE PER SESSION (KV)
+// Simpan pilihan /model user, persistent sampai /model reset
+// ────────────────────────────────────────────────────────────────
+
+async function loadModelOverride(env, chatId) {
+  try {
+    if (!env.HISTORY_KV) return null;
+    return await env.HISTORY_KV.get(`m:${chatId}`);
+  } catch { return null; }
+}
+
+async function saveModelOverride(env, chatId, model) {
+  try {
+    if (!env.HISTORY_KV) return;
+    if (model === null) {
+      await env.HISTORY_KV.delete(`m:${chatId}`);
+    } else {
+      await env.HISTORY_KV.put(`m:${chatId}`, model, { expirationTtl: 7 * 24 * 3600 });
+    }
+  } catch {}
+}
+
+// ────────────────────────────────────────────────────────────────
 // TELEGRAM HELPERS
 // ────────────────────────────────────────────────────────────────
 
@@ -524,11 +623,10 @@ async function tgSend(env, chatId, text) {
   const MAX_LEN = 4000;
   const chunks = [];
 
-  // Split at newline boundaries jika terlalu panjang
   let remaining = String(text);
   while (remaining.length > MAX_LEN) {
     let cut = remaining.lastIndexOf("\n", MAX_LEN);
-    if (cut < MAX_LEN * 0.5) cut = MAX_LEN; // fallback hard cut
+    if (cut < MAX_LEN * 0.5) cut = MAX_LEN;
     chunks.push(remaining.slice(0, cut));
     remaining = remaining.slice(cut).trimStart();
   }
@@ -562,13 +660,13 @@ async function tgTyping(env, chatId) {
 // ────────────────────────────────────────────────────────────────
 
 function isAllowed(env, chatId) {
-  if (!env.ALLOWED_CHAT_IDS) return true; // open jika tidak dikonfigurasi
+  if (!env.ALLOWED_CHAT_IDS) return true;
   const ids = env.ALLOWED_CHAT_IDS.split(",").map(s => s.trim());
   return ids.includes(String(chatId));
 }
 
 // ────────────────────────────────────────────────────────────────
-// CORE PROCESSOR (berjalan async via ctx.waitUntil)
+// CORE PROCESSOR
 // ────────────────────────────────────────────────────────────────
 
 async function processUpdate(update, env) {
@@ -578,10 +676,9 @@ async function processUpdate(update, env) {
   const chatId = message.chat.id;
   const text = message.text.trim();
 
-  // Security gate
   if (!isAllowed(env, chatId)) return;
 
-  // ── Special commands ──────────────────────────────────────
+  // ── /start & /help ────────────────────────────────────────
   if (text === "/start" || text === "/help") {
     await tgSend(env, chatId,
       `👋 RADJA AC Agent aktif!\n\n` +
@@ -592,19 +689,72 @@ async function processUpdate(update, env) {
       `• "Tambahkan nearbyAreaLinks ke Banyumas"\n` +
       `• "Apa commit terakhir yang masuk?"\n` +
       `• "Jelaskan struktur repo ini"\n\n` +
+      `Perintah:\n` +
       `/reset — hapus history percakapan\n` +
       `/status — cek koneksi repo\n` +
+      `/model — lihat & ganti model aktif\n` +
       `/debug — cek semua env vars & koneksi`
     );
     return;
   }
 
+  // ── /reset ────────────────────────────────────────────────
   if (text === "/reset") {
     await clearHistory(env, chatId);
     await tgSend(env, chatId, "✅ History percakapan dihapus. Mulai sesi baru.");
     return;
   }
 
+  // ── /model — lihat, ganti, atau reset model override ──────
+  // Contoh penggunaan:
+  //   /model                    → tampilkan model aktif & daftar pilihan
+  //   /model reset              → hapus override, kembali ke auto-detect
+  //   /model dahono/qwen3-coder-plus  → paksa pakai model ini
+  if (text === "/model" || text.startsWith("/model ")) {
+    const arg = text.replace("/model", "").trim();
+
+    if (!arg) {
+      // Tampilkan status + daftar model
+      const currentOverride = await loadModelOverride(env, chatId);
+      const { model: autoModel, intent: autoIntent } = selectModel(env, "", null);
+
+      const modelLines = [
+        `🤖 Model Router Status\n`,
+        currentOverride
+          ? `Override aktif: ${currentOverride}`
+          : `Mode: auto-detect (${autoIntent} → ${autoModel})`,
+        ``,
+        `Daftar model di config:`,
+        `  DEFAULT : ${env.MODEL_DEFAULT || "—"}`,
+        `  CASUAL  : ${env.MODEL_CASUAL || env.MODEL_FAST || "—"}`,
+        `  CODER   : ${env.MODEL_CODER || "—"}`,
+        `  AUDIT   : ${env.MODEL_AUDIT || "—"}`,
+        `  PLANNER : ${env.MODEL_PLANNER || "—"}`,
+        `  DEBUG   : ${env.MODEL_DEBUG || "—"}`,
+        `  SEO     : ${env.MODEL_SEO || "—"}`,
+        `  REPO    : ${env.MODEL_REPO || "—"}`,
+        ``,
+        `Perintah:`,
+        `/model reset          → kembali ke auto`,
+        `/model <model-id>     → paksa pakai model ini`
+      ];
+      await tgSend(env, chatId, modelLines.join("\n"));
+      return;
+    }
+
+    if (arg === "reset") {
+      await saveModelOverride(env, chatId, null);
+      await tgSend(env, chatId, "✅ Override dihapus. Kembali ke auto-detect.");
+      return;
+    }
+
+    // Set override ke model yang diminta
+    await saveModelOverride(env, chatId, arg);
+    await tgSend(env, chatId, `✅ Model dipaksa ke: ${arg}\nKirim /model reset untuk kembali ke auto.`);
+    return;
+  }
+
+  // ── /debug ────────────────────────────────────────────────
   if (text === "/debug") {
     const lines = ["🔍 Debug RADJA AC Agent\n"];
 
@@ -614,6 +764,7 @@ async function processUpdate(update, env) {
     lines.push(`GITLAB_TOKEN: ${env.GITLAB_TOKEN ? "✅" : "❌ MISSING"}`);
     lines.push(`GITLAB_PROJECT_ID: ${env.GITLAB_PROJECT_ID || "❌ MISSING"}`);
     lines.push(`HISTORY_KV: ${env.HISTORY_KV ? "✅ bound" : "❌ NOT BOUND"}`);
+    lines.push(`AI_GATEWAY_BASE_URL: ${env.AI_GATEWAY_BASE_URL || "(default: gateway.dahono.com/v1)"}`);
     lines.push(`MODEL_DEFAULT: ${env.MODEL_DEFAULT || "❌ MISSING"}`);
 
     lines.push("\n── GitLab API ──");
@@ -627,13 +778,11 @@ async function processUpdate(update, env) {
     }
 
     lines.push("\n── AI API ──");
+    lines.push(`Endpoint: ${getAiEndpoint(env)}`);
     try {
-      const aiRes = await fetch("https://gateway.dahono.com/v1/chat/completions", {
+      const aiRes = await fetch(getAiEndpoint(env), {  // ← tidak hardcode lagi
         method: "POST",
-        headers: {
-          "Authorization": `Bearer ${env.DAHONO_API_KEY}`,
-          "Content-Type": "application/json"
-        },
+        headers: getAiHeaders(env),
         body: JSON.stringify({
           model: env.MODEL_DEFAULT || "dahono/claude-sonnet-4.5-agentic-free",
           messages: [{ role: "user", content: "Balas hanya: OK" }],
@@ -646,16 +795,24 @@ async function processUpdate(update, env) {
       } else {
         const aiData = await aiRes.json();
         const aiReply = aiData?.choices?.[0]?.message?.content;
-        lines.push(aiReply ? `✅ Menjawab: "${aiReply.trim()}"` : `⚠️ Respons tak terduga: ${JSON.stringify(aiData).slice(0, 100)}`);
+        lines.push(aiReply
+          ? `✅ Menjawab: "${aiReply.trim()}"`
+          : `⚠️ Respons tak terduga: ${JSON.stringify(aiData).slice(0, 100)}`);
       }
     } catch (e) {
       lines.push(`❌ ${e.message}`);
     }
 
+    // Cek model override aktif
+    const override = await loadModelOverride(env, chatId);
+    lines.push(`\n── Model Router ──`);
+    lines.push(override ? `Override: ${override}` : `Mode: auto-detect`);
+
     await tgSend(env, chatId, lines.join("\n"));
     return;
   }
 
+  // ── /status ───────────────────────────────────────────────
   if (text === "/status") {
     const info = await gitlabFetch(env, "").catch(() => null);
     if (info) {
@@ -674,17 +831,16 @@ async function processUpdate(update, env) {
   // ── Agent flow ────────────────────────────────────────────
   await tgTyping(env, chatId);
 
-  const history = await loadHistory(env, chatId);
+  const [history, modelOverride] = await Promise.all([
+    loadHistory(env, chatId),
+    loadModelOverride(env, chatId)
+  ]);
+
   const userMsg = { role: "user", content: text };
   const workingMessages = [...history, userMsg];
 
-  const reply = await runAgent(
-    workingMessages,
-    env,
-    text
-  );
+  const reply = await runAgent(workingMessages, env, text, modelOverride);
 
-  // Simpan ke history (user + assistant, tanpa tool messages)
   await saveHistory(env, chatId, [
     ...history,
     userMsg,
@@ -695,28 +851,22 @@ async function processUpdate(update, env) {
 }
 
 // ────────────────────────────────────────────────────────────────
-// MAIN EXPORT — return 200 langsung, proses async
+// MAIN EXPORT
 // ────────────────────────────────────────────────────────────────
 
 export default {
   async fetch(request, env, ctx) {
-    // WAJIB: baca body dulu sebelum return response.
-    // request.body adalah ReadableStream satu kali — kalau dibaca
-    // di dalam ctx.waitUntil setelah response dikirim, stream bisa mati.
     let update;
     try {
       update = await request.json();
     } catch {
-      // Bukan JSON valid (health check, browser ping, dll) — abaikan
       return new Response("OK", { status: 200 });
     }
 
-    // Setelah body terbaca, proses di background supaya Telegram tidak timeout
     ctx.waitUntil(
       processUpdate(update, env)
         .catch(async (err) => {
           console.error("processUpdate fatal error:", err);
-          // Coba kirim error ke chat jika bisa
           try {
             const chatId = update?.message?.chat?.id;
             if (chatId && env.TELEGRAM_TOKEN) {
