@@ -302,23 +302,6 @@ if (text === "audit homepage") {
       );
     }
   }
-};        );
-
-        return new Response("OK");
-      }
-
-      const data = await file.json();
-
-      const content = atob(data.content);
-
-      await sendTelegram(
-        env,
-        chatId,
-        `FILE: ${path}\n\n${content.slice(0, 3500)}`
-      );
-
-      return new Response("OK");
-    }
 
     // =========================
     // DAHONO AI
