@@ -2,7 +2,7 @@ name = "crimson-brook-1413"
 main = "worker.js"
 compatibility_date = "2026-06-15"
 
-# ── KV Namespace untuk history percakapan ──────────────────────
+# ── KV Namespace untuk history percakapan & model override ──────
 # Setup: jalankan perintah ini sekali di terminal:
 #   npx wrangler kv:namespace create HISTORY_KV
 # Lalu isi "id" di bawah dengan output dari perintah tersebut.
@@ -10,32 +10,72 @@ compatibility_date = "2026-06-15"
 binding = "HISTORY_KV"
 id = "d7393d2de8044883810fc43ae995fc3e"
 
-# ── Variabel environment ───────────────────────────────────────
+# ── Variabel environment ─────────────────────────────────────────
 # Rahasia (TOKEN, KEY) → set via Cloudflare dashboard > Settings > Variables
 # supaya tidak masuk ke version control.
-# Var opsional bisa diset di sini:
 
 [vars]
 DEFAULT_BRANCH = "main"
 
 # ==========================
+# ENDPOINT GATEWAY AI
+# ==========================
+# Ini adalah SATU-SATUNYA tempat untuk ganti endpoint.
+# Ubah nilai ini jika ingin pindah gateway (Dahono → OpenRouter, dll).
+# Format: base URL tanpa trailing slash, tanpa /chat/completions
+#
+# Contoh nilai:
+#   "https://gateway.dahono.com/v1"        ← Dahono (default sekarang)
+#   "https://openrouter.ai/api/v1"         ← OpenRouter
+#   "https://api.together.xyz/v1"          ← Together AI
+#   "https://api.groq.com/openai/v1"       ← Groq
+#   "http://localhost:11434/v1"            ← Ollama lokal (via tunnel)
+#
+# Catatan: DAHONO_API_KEY di dashboard juga perlu diganti
+# jika pindah ke provider lain yang pakai key berbeda.
+
+AI_GATEWAY_BASE_URL = "https://gateway.dahono.com/v1"
+
+# ==========================
 # AI MODEL ROUTER
 # ==========================
+# Setiap var di sini bisa diubah tanpa deploy ulang
+# (via Cloudflare dashboard > Settings > Environment Variables).
+#
+# Hierarki fallback per request:
+#   MODEL_<INTENT> → MODEL_DEFAULT → hardcoded fallback
+#
+# Untuk pakai model berbeda per intent:
+#   1. Ubah nilai di sini, lalu deploy ulang (atau set di dashboard)
+#   2. Atau gunakan /model <model-id> di Telegram untuk override sementara
 
-MODEL_DEFAULT = "dahono/claude-sonnet-4.5-agentic-free"
+# Dipakai saat tidak ada keyword intent yang cocok (obrolan umum)
+MODEL_DEFAULT   = "dahono/claude-sonnet-4.5-agentic-free"
 
-MODEL_AUDIT = "dahono/claude-sonnet-4.5-thinking-free"
+# Obrolan santai, pertanyaan cepat, greeting
+# Pakai model ringan agar response cepat & hemat quota
+MODEL_CASUAL    = "dahono/qwen3.6-flash"
 
-MODEL_PLANNER = "dahono/claude-sonnet-4.5-thinking-agentic-free"
+# Analisis mendalam, review SEO, evaluasi halaman
+MODEL_AUDIT     = "dahono/claude-sonnet-4.5-thinking-free"
 
-MODEL_CODER = "dahono/qwen3-coder-plus"
+# Perencanaan, roadmap, arsitektur, strategi
+MODEL_PLANNER   = "dahono/claude-sonnet-4.5-thinking-agentic-free"
 
-MODEL_FAST = "dahono/qwen3.6-flash"
+# Coding, refactor, buat component/page, JavaScript/React/Next.js
+MODEL_CODER     = "dahono/qwen3-coder-plus"
 
-MODEL_REPO = "dahono/claude-sonnet-4.5-agentic-free"
+# Baca/tulis file repo, list tree, search file, commit
+MODEL_REPO      = "dahono/claude-sonnet-4.5-agentic-free"
 
-MODEL_SEO = "dahono/claude-sonnet-4.5-thinking-free"
+# Analisis SEO spesifik: meta, schema, heading, canonical
+MODEL_SEO       = "dahono/claude-sonnet-4.5-thinking-free"
 
-MODEL_DEBUG = "dahono/claude-sonnet-4.5-thinking-agentic-free"
+# Debugging, investigasi bug/error, root cause analysis
+MODEL_DEBUG     = "dahono/claude-sonnet-4.5-thinking-agentic-free"
+
+# Model tercepat — dipakai sebagai fallback MODEL_CASUAL
+# atau bisa dipanggil manual via /model dahono/qwen3.6-flash
+MODEL_FAST      = "dahono/qwen3.6-flash"
 
 # ALLOWED_CHAT_IDS = "123456789,987654321"
