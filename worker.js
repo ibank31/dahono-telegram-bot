@@ -381,18 +381,16 @@ async function runAgent(
   const messages = [...conversationMessages];
 
   for (let i = 0; i < MAX_ITERATIONS; i++) {
+    // Mendapatkan model yang tepat berdasarkan userText
+    const model = selectModel(env, userText);
+
     const res = await fetch("https://gateway.dahono.com/v1/chat/completions", {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${env.DAHONO_API_KEY}`,
         "Content-Type": "application/json"
       },
-      const model = selectModel(
-  env,
-  userText
-);
-
-body: JSON.stringify({
+      body: JSON.stringify({
         model,
         messages: [
           { role: "system", content: SYSTEM_PROMPT },
@@ -409,10 +407,10 @@ body: JSON.stringify({
       const errText = await res.text();
       // Fallback: try without tools (compatibility mode)
       if (i === 0) return await runAgentFallback(
-  conversationMessages,
-  env,
-  userText
-);
+        conversationMessages,
+        env,
+        userText
+      );
       return `⚠️ AI error (iterasi ${i + 1}): ${errText.slice(0, 200)}`;
     }
 
@@ -455,18 +453,16 @@ async function runAgentFallback(
   env,
   userText = ""
 ) {
+  // Mendapatkan model yang tepat berdasarkan userText
+  const model = selectModel(env, userText);
+
   const res = await fetch("https://gateway.dahono.com/v1/chat/completions", {
     method: "POST",
     headers: {
       "Authorization": `Bearer ${env.DAHONO_API_KEY}`,
       "Content-Type": "application/json"
     },
-    const model = selectModel(
-  env,
-  userText
-);
-
-body: JSON.stringify({
+    body: JSON.stringify({
       model,
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
@@ -631,10 +627,10 @@ async function processUpdate(update, env) {
   const workingMessages = [...history, userMsg];
 
   const reply = await runAgent(
-  workingMessages,
-  env,
-  text
-);
+    workingMessages,
+    env,
+    text
+  );
 
   // Simpan ke history (user + assistant, tanpa tool messages)
   await saveHistory(env, chatId, [
