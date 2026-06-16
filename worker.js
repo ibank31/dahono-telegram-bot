@@ -6,7 +6,7 @@ async function sendTelegram(env, chatId, text) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         chat_id: chatId,
-        text: text.slice(0, 4000)
+        text: String(text).slice(0, 4000)
       })
     }
   );
@@ -52,13 +52,14 @@ export default {
       }
 
       const chatId = update.message.chat.id;
-      const text = update.message.text.trim().toLowerCase();
+      const text = update.message.text.trim();
+      const lowerText = text.toLowerCase();
 
       // ===================
       // CEK REPO
       // ===================
 
-      if (text === "cek repo") {
+      if (lowerText === "cek repo") {
         const project = await fetch(
           `https://gitlab.com/api/v4/projects/${env.GITLAB_PROJECT_ID}`,
           {
@@ -85,13 +86,13 @@ Visibility: ${data.visibility}`
       // LIST FILE
       // ===================
 
-      if (text === "list file") {
+      if (lowerText === "list file") {
         const tree = await getRepoTree(env);
 
         const files = tree
-          .filter(x => x.type === "blob")
+          .filter(item => item.type === "blob")
           .slice(0, 100)
-          .map(x => x.path)
+          .map(item => item.path)
           .join("\n");
 
         await sendTelegram(
@@ -107,19 +108,19 @@ Visibility: ${data.visibility}`
       // CARI FILE
       // ===================
 
-      if (text.startsWith("cari file ")) {
-        const keyword = text.replace("cari file ", "");
+      if (lowerText.startsWith("cari file ")) {
+        const keyword = lowerText.replace("cari file ", "");
 
         const tree = await getRepoTree(env);
 
         const matches = tree
           .filter(
-            x =>
-              x.type === "blob" &&
-              x.path.toLowerCase().includes(keyword)
+            item =>
+              item.type === "blob" &&
+              item.path.toLowerCase().includes(keyword)
           )
           .slice(0, 30)
-          .map(x => x.path);
+          .map(item => item.path);
 
         await sendTelegram(
           env,
@@ -136,12 +137,14 @@ Visibility: ${data.visibility}`
       // BACA HOMEPAGE
       // ===================
 
-      if (text === "baca homepage") {
+      if (lowerText === "baca homepage") {
         const candidates = [
           "app/page.js",
           "app/page.jsx",
           "src/app/page.js",
-          "src/app/page.jsx"
+          "src/app/page.jsx",
+          "app/page.tsx",
+          "src/app/page.tsx"
         ];
 
         for (const file of candidates) {
@@ -168,78 +171,86 @@ Visibility: ${data.visibility}`
       }
 
       // ===================
+      // AUDIT HOMEPAGE
+      // ===================
+
+      if (lowerText === "audit homepage") {
+        const candidates = [
+          "app/page.js",
+          "app/page.jsx",
+          "src/app/page.js",
+          "src/app/page.jsx",
+          "app/page.tsx",
+          "src/app/page.tsx"
+        ];
+
+        let homepageContent = null;
+        let homepagePath = null;
+
+        for (const file of candidates) {
+          const content = await readGitlabFile(env, file);
+
+          if (content) {
+            homepageContent = content;
+            homepagePath = file;
+            break;
+          }
+        }
+
+        if (!homepageContent) {
+          await sendTelegram(
+            env,
+            chatId,
+            "Homepage tidak ditemukan."
+          );
+
+          return new Response("OK");
+        }
+
+        const ai = await fetch(
+          "https://gateway.dahono.com/v1/chat/completions",
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${env.DAHONO_API_KEY}`,
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              model: "dahono/qwen-coder-plus",
+              messages: [
+                {
+                  role: "system",
+                  content:
+                    "Audit homepage dari sisi SEO, UX, Conversion Rate, Accessibility, dan Performance."
+                },
+                {
+                  role: "user",
+                  content:
+                    `FILE: ${homepagePath}\n\n` +
+                    homepageContent.slice(0, 12000)
+                }
+              ]
+            })
+          }
+        );
+
+        const result = await ai.json();
+
+        const answer =
+          result?.choices?.[0]?.message?.content ||
+          "Audit gagal.";
+
+        await sendTelegram(env, chatId, answer);
+
+        return new Response("OK");
+      }
+
+      // ===================
       // BACA FILE
       // ===================
-if (text === "audit homepage") {
 
-  const candidates = [
-    "app/page.js",
-    "app/page.jsx",
-    "src/app/page.js",
-    "src/app/page.jsx"
-  ];
-
-  let homepageContent = null;
-  let homepagePath = null;
-
-  for (const file of candidates) {
-    const content = await readGitlabFile(env, file);
-
-    if (content) {
-      homepageContent = content;
-      homepagePath = file;
-      break;
-    }
-  }
-
-  if (!homepageContent) {
-    await sendTelegram(
-      env,
-      chatId,
-      "Homepage tidak ditemukan."
-    );
-
-    return new Response("OK");
-  }
-
-  const ai = await fetch(
-    "https://gateway.dahono.com/v1/chat/completions",
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${env.DAHONO_API_KEY}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        model: "dahono/qwen-coder-plus",
-        messages: [
-          {
-            role: "system",
-            content: "Audit homepage dari sisi SEO, UX, Conversion dan Performance."
-          },
-          {
-            role: "user",
-            content: homepageContent.slice(0, 12000)
-          }
-        ]
-      })
-    }
-  );
-
-  const result = await ai.json();
-
-  const answer =
-    result?.choices?.[0]?.message?.content ||
-    "Audit gagal.";
-
-  await sendTelegram(env, chatId, answer);
-
-  return new Response("OK");
-}
-      if (text.startsWith("baca file ")) {
-        const path = update.message.text
-          .trim()
-          .substring(10);
+      if (lowerText.startsWith("baca file ")) {
+        const path = text.substring(10).trim();
 
         const content = await readGitlabFile(env, path);
 
@@ -279,7 +290,7 @@ if (text === "audit homepage") {
             messages: [
               {
                 role: "user",
-                content: update.message.text
+                content: text
               }
             ]
           })
@@ -295,50 +306,14 @@ if (text === "audit homepage") {
       await sendTelegram(env, chatId, answer);
 
       return new Response("OK");
+
     } catch (err) {
+      console.error(err);
+
       return new Response(
         "ERROR: " + err.message,
         { status: 500 }
       );
     }
-  }
-
-    // =========================
-    // DAHONO AI
-    // =========================
-
-    const ai = await fetch(
-      "https://gateway.dahono.com/v1/chat/completions",
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${env.DAHONO_API_KEY}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          model: "dahono/qwen-coder-plus",
-          messages: [
-            {
-              role: "user",
-              content: text
-            }
-          ]
-        })
-      }
-    );
-
-    const data = await ai.json();
-
-    const answer =
-      data?.choices?.[0]?.message?.content ||
-      "Tidak ada jawaban.";
-
-    await sendTelegram(
-      env,
-      chatId,
-      answer
-    );
-
-    return new Response("OK");
   }
 };
