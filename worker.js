@@ -170,7 +170,72 @@ Visibility: ${data.visibility}`
       // ===================
       // BACA FILE
       // ===================
+if (text === "audit homepage") {
 
+  const candidates = [
+    "app/page.js",
+    "app/page.jsx",
+    "src/app/page.js",
+    "src/app/page.jsx"
+  ];
+
+  let homepageContent = null;
+  let homepagePath = null;
+
+  for (const file of candidates) {
+    const content = await readGitlabFile(env, file);
+
+    if (content) {
+      homepageContent = content;
+      homepagePath = file;
+      break;
+    }
+  }
+
+  if (!homepageContent) {
+    await sendTelegram(
+      env,
+      chatId,
+      "Homepage tidak ditemukan."
+    );
+
+    return new Response("OK");
+  }
+
+  const ai = await fetch(
+    "https://gateway.dahono.com/v1/chat/completions",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${env.DAHONO_API_KEY}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        model: "dahono/qwen-coder-plus",
+        messages: [
+          {
+            role: "system",
+            content: "Audit homepage dari sisi SEO, UX, Conversion dan Performance."
+          },
+          {
+            role: "user",
+            content: homepageContent.slice(0, 12000)
+          }
+        ]
+      })
+    }
+  );
+
+  const result = await ai.json();
+
+  const answer =
+    result?.choices?.[0]?.message?.content ||
+    "Audit gagal.";
+
+  await sendTelegram(env, chatId, answer);
+
+  return new Response("OK");
+}
       if (text.startsWith("baca file ")) {
         const path = update.message.text
           .trim()
