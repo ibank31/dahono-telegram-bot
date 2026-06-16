@@ -387,8 +387,13 @@ async function runAgent(
         "Authorization": `Bearer ${env.DAHONO_API_KEY}`,
         "Content-Type": "application/json"
       },
-      body: JSON.stringify({
-        model: env.AI_MODEL || "dahono/qwen-coder-plus",
+      const model = selectModel(
+  env,
+  userText
+);
+
+body: JSON.stringify({
+        model,
         messages: [
           { role: "system", content: SYSTEM_PROMPT },
           ...messages
